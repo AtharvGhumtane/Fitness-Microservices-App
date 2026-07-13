@@ -1,14 +1,15 @@
 import axios from "axios";
 
-const API_URL = 'http://localhost:8081/api';
+// Use relative path — works with both Vite dev proxy and nginx in Docker
+const API_URL = '/api';
 
 const api = axios.create({
-    baseURL:API_URL
+    baseURL: API_URL
 });
 
 api.interceptors.request.use((config) => {
-    const userId = localStorage.getItem('userId');
     const token = localStorage.getItem('token');
+    const userId = localStorage.getItem('userId');
 
     if (token) {
         config.headers['Authorization'] = `Bearer ${token}`;
@@ -17,10 +18,11 @@ api.interceptors.request.use((config) => {
     if (userId) {
         config.headers['X-User-ID'] = userId;
     }
+    
     return config;
-}
-);
-
+}, (error) => {
+    return Promise.reject(error);
+});
 
 export const getActivities = () => api.get('/activities');
 export const addActivity = (activity) => api.post('/activities', activity);

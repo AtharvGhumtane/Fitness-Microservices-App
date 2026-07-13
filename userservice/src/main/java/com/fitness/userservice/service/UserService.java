@@ -2,7 +2,7 @@ package com.fitness.userservice.service;
 
 import com.fitness.userservice.dto.RegisterRequest;
 import com.fitness.userservice.dto.UserResponse;
-import jakarta.validation.Valid;
+
 import com.fitness.userservice.model.User;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,13 +22,13 @@ public class UserService {
 
         if(repository.existsByEmail(request.getEmail())){
             User existingUser = repository.findByEmail(request.getEmail());
-
-            getUserResponse(existingUser);
+            return getUserResponse(existingUser);
         }
 
 
         User user = new User();
         user.setEmail(request.getEmail());
+        user.setKeycloakId(request.getKeycloakId());
         user.setPassword(request.getPassword());
         user.setFirstname(request.getFirstName());
         user.setLastname(request.getLastName());
@@ -43,7 +43,6 @@ public class UserService {
         UserResponse userResponse = new UserResponse();
         userResponse.setId(savedUser.getId());
         userResponse.setKeycloakId(savedUser.getKeycloakId());
-        userResponse.setPassword(savedUser.getPassword());
         userResponse.setEmail(savedUser.getEmail());
         userResponse.setFirstName(savedUser.getFirstname());
         userResponse.setLastName(savedUser.getLastname());
@@ -52,13 +51,13 @@ public class UserService {
         return userResponse;
     }
 
-    public UserResponse getUserProfile(@Valid String userId) {
+    public UserResponse getUserProfile(String userId) {
         User user = repository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not Found"));
 
         UserResponse userResponse = new UserResponse();
         userResponse.setId(user.getId());
-        userResponse.setPassword(user.getPassword());
+        userResponse.setKeycloakId(user.getKeycloakId());
         userResponse.setEmail(user.getEmail());
         userResponse.setFirstName(user.getFirstname());
         userResponse.setLastName(user.getLastname());
@@ -69,7 +68,7 @@ public class UserService {
     }
 
     public Boolean existByUserId(String userId) {
-        log.info("Calling User Validation API for userId: {}"+ userId);
+        log.info("Calling User Validation API for userId: {}", userId);
         return repository.existsByKeycloakId(userId);
     }
 }

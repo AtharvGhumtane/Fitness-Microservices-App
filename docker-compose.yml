@@ -1,0 +1,282 @@
+services:
+
+  # ==========================================
+  # Infrastructure Services
+  # ==========================================
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: fitness-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-fitness_user_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - fitness-network
+
+  mongodb:
+    image: mongo:7
+    container_name: fitness-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - fitness-network
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: fitness-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-guest}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - fitness-network
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: fitness-keycloak
+    environment:
+      KC_DB: dev-mem
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_HEALTH_ENABLED: "true"
+      KC_HTTP_PORT: 8070
+    command:
+      - start-dev
+      - --import-realm
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    ports:
+      - "8070:8070"
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8070 && echo -e 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && cat <&3 | grep -q '200'"]
+      interval: 15s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+    networks:
+      - fitness-network
+
+  # ==========================================
+  # Config & Discovery Services
+  # ==========================================
+
+  config-server:
+    build:
+      context: ./configserver
+      dockerfile: Dockerfile
+    container_name: fitness-config-server
+    ports:
+      - "8094:8094"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8094/actuator/health 2>/dev/null || wget -q --spider http://localhost:8094/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - fitness-network
+
+  eureka:
+    build:
+      context: ./eureka
+      dockerfile: Dockerfile
+    container_name: fitness-eureka
+    environment:
+      EUREKA_INSTANCE_HOSTNAME: eureka
+    ports:
+      - "8761:8761"
+    depends_on:
+      config-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8761/actuator/health 2>/dev/null || wget -q --spider http://localhost:8761/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - fitness-network
+
+  # ==========================================
+  # Application Services
+  # ==========================================
+
+  user-service:
+    build:
+      context: ./userservice
+      dockerfile: Dockerfile
+    container_name: fitness-user-service
+    environment:
+      SPRING_CONFIG_IMPORT: "optional:configserver:http://config-server:8094"
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres:5432/${POSTGRES_DB:-fitness_user_db}"
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://eureka:8761/eureka/
+    ports:
+      - "8091:8091"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      eureka:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8091/actuator/health 2>/dev/null || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    networks:
+      - fitness-network
+
+  activity-service:
+    build:
+      context: ./activityservice
+      dockerfile: Dockerfile
+    container_name: fitness-activity-service
+    environment:
+      SPRING_CONFIG_IMPORT: "optional:configserver:http://config-server:8094"
+      SPRING_DATA_MONGODB_URI: "mongodb://mongodb:27017/fitnessactivity"
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_DEFAULT_USER:-guest}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_DEFAULT_PASS:-guest}
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://eureka:8761/eureka/
+    ports:
+      - "8092:8092"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      eureka:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8092/actuator/health 2>/dev/null || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    networks:
+      - fitness-network
+
+  ai-service:
+    build:
+      context: ./aiservice
+      dockerfile: Dockerfile
+    container_name: fitness-ai-service
+    environment:
+      SPRING_CONFIG_IMPORT: "optional:configserver:http://config-server:8094"
+      SPRING_DATA_MONGODB_URI: "mongodb://mongodb:27017/fitness-recommendation"
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_DEFAULT_USER:-guest}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_DEFAULT_PASS:-guest}
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://eureka:8761/eureka/
+      GEMINI_API_URL: ${GEMINI_API_URL:-https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-your-gemini-api-key-here}
+    ports:
+      - "8093:8093"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      eureka:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8093/actuator/health 2>/dev/null || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    networks:
+      - fitness-network
+
+  api-gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    container_name: fitness-api-gateway
+    environment:
+      SPRING_CONFIG_IMPORT: "optional:configserver:http://config-server:8094"
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://keycloak:8070/realms/fitness-oauth2
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8070/realms/fitness-oauth2/protocol/openid-connect/certs
+      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://eureka:8761/eureka/
+    ports:
+      - "8081:8081"
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      eureka:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8081/actuator/health 2>/dev/null || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    networks:
+      - fitness-network
+
+  # ==========================================
+  # Frontend
+  # ==========================================
+
+  frontend:
+    build:
+      context: ./fitness-app-frontend
+      dockerfile: Dockerfile
+    container_name: fitness-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    networks:
+      - fitness-network
+
+# ==========================================
+# Volumes & Networks
+# ==========================================
+
+volumes:
+  postgres-data:
+  mongodb-data:
+
+networks:
+  fitness-network:
+    driver: bridge

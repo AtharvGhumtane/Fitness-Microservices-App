@@ -15,7 +15,7 @@ public class UserValidationService {
     private final WebClient userServiceWebClient;
 
     public boolean validateUser(String userId){
-        log.info("Calling User Validation API for userId: {}"+ userId);
+        log.info("Calling User Validation API for userId: {}", userId);
 
         try{
             return Boolean.TRUE.equals(userServiceWebClient.get()

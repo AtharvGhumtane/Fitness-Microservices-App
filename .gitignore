@@ -1,0 +1,12 @@
+.env
+.idea/
+.vscode/
+*.iml
+out/
+target/
+node_modules/
+dist/
+build/
+bin/
+scratch/
+restore.py

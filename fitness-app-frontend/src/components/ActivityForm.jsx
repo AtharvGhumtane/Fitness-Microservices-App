@@ -1,9 +1,12 @@
 import { Box, Button, FormControl, InputLabel, MenuItem, Select, TextField } from '@mui/material'
 import React, { useState } from 'react'
+import { useSelector } from 'react-redux'
 import { addActivity } from '../services/api'
 
 
 const ActivityForm = ({ onActivityAdded }) => {
+
+    const userId = useSelector((state) => state.auth.userId);
 
     const [activity, setActivity] = useState({
         type: "RUNNING", duration: '', caloriesBurned: '',
@@ -13,9 +16,9 @@ const ActivityForm = ({ onActivityAdded }) => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         try {
-            await addActivity(activity);
+            await addActivity({ ...activity, userId });
             onActivityAdded();
-            setActivity({ type: "RUNNING", duration: '', caloriesBurned: ''});
+            setActivity({ type: "RUNNING", duration: '', caloriesBurned: '', additionalMetrics: {} });
         } catch (error) {
             console.error(error);
         }
@@ -27,10 +30,18 @@ const ActivityForm = ({ onActivityAdded }) => {
         <InputLabel>Activity Type</InputLabel>
         <Select
             value={activity.type}
+            label="Activity Type"
             onChange={(e) => setActivity({...activity, type: e.target.value})}>
                 <MenuItem value="RUNNING">Running</MenuItem>
                 <MenuItem value="WALKING">Walking</MenuItem>
                 <MenuItem value="CYCLING">Cycling</MenuItem>
+                <MenuItem value="SWIMMING">Swimming</MenuItem>
+                <MenuItem value="WEIGHT_TRAINING">Weight Training</MenuItem>
+                <MenuItem value="YOGA">Yoga</MenuItem>
+                <MenuItem value="HIIT">HIIT</MenuItem>
+                <MenuItem value="CARDIO">Cardio</MenuItem>
+                <MenuItem value="STRETCHING">Stretching</MenuItem>
+                <MenuItem value="OTHER">Other</MenuItem>
             </Select>
     </FormControl>
     <TextField fullWidth
